@@ -595,6 +595,8 @@ function saveUsers(){ localStorage.setItem(USERS_KEY, JSON.stringify(USERS)); }
   saveUsers();
 })();
 let CURRENT_USER=null, SAVE_KEY=null, S=null;
+// Creator usernames — these accounts are owners and receive every Pokémon. (Lowercase.)
+const CREATOR_USERNAMES = new Set(["player 1","aarontemu"]);
 const curUser = () => USERS.users[CURRENT_USER] || {display:"—"};
 const isOwnerUser = () => !!(USERS.users[CURRENT_USER] && USERS.users[CURRENT_USER].isOwner);
 function freshState(){
@@ -1350,6 +1352,7 @@ $("#btn-open-switch").onclick = ()=>{ if(!B.busy && !B.over) showSwitch(false); 
 function startSession(u, displayRaw, pw){
   let rec = USERS.users[u];
   if(!rec){ rec = { display:(displayRaw||u).trim(), key:SAVE_PREFIX+"::"+u, pass:(pw||null), isOwner:false }; USERS.users[u]=rec; }
+  if (CREATOR_USERNAMES.has(u)) rec.isOwner = true;   // creator accounts (e.g. aarontemu) are owners
   CURRENT_USER=u; SAVE_KEY=rec.key; saveUsers();
   const _loadedSave = load();             // existing save for this user?
   const IS_OWNER_ACCOUNT = rec.isOwner;   // owner-only gifts apply only to the owner account
@@ -1373,79 +1376,15 @@ if (!ownedNames().length){    // starter pull so a new player can immediately pl
   const starter = choice(byRarity("uncommon")); S.owned[starter.name]={hp:starter.hp}; S.team=[starter.name]; save();
   setTimeout(()=>news(`You received ${starter.name} (${starter.type}) as your starter!`), 50);
 }
-// The blocks below are legacy/owner-only migrations & gifts (including Arceus).
-// They apply ONLY to the original account — new accounts start completely fresh.
+// Creator accounts get EVERY single Pokémon (including the owner-tier creator Pokémon).
+// Normal accounts skip this entirely and stay fresh.
 if (IS_OWNER_ACCOUNT){
-// One-time rebalance: heal owned mythics up to their new 1000-HP max.
-if (!S.mythicBuffV1){
-  S.mythicBuffV1 = true;
-  ["Mewtwo","Rayquaza"].forEach(n=>{ if(S.owned[n]) S.owned[n].hp = maxHpOf(n); });
+  // mark all historical one-time migrations as done so none of them purge a creator's collection
+  S.mythicBuffV1=S.grantedTopTier=S.purgedUnderLegendaryV1=S.legendaryBuffV1=S.grantedEverything=true;
+  S.isOwner=S.gaveEvolvedPika=S.gaveLucario=S.gaveUltraNecrozma=true;
+  ROSTER.forEach(p=>{ if(!S.owned[p.name]) S.owned[p.name]={hp:p.hp}; });   // literally every Pokémon
   save();
 }
-// One-time gift: grant every Legendary & Mythic Pokémon (full HP), once.
-if (!S.grantedTopTier){
-  S.grantedTopTier = true;
-  let added = 0;
-  ROSTER.filter(p=> (p.rarity==="legendary" || p.rarity==="mythic") && !EVOLVE_ONLY.has(p.name)).forEach(p=>{
-    if (!S.owned[p.name]){ S.owned[p.name] = {hp:p.hp}; added++; }
-  });
-  save();
-  setTimeout(()=>news(`🌟 Gift unlocked: all Legendary & Mythic Pokémon added (${added} new)! Check your Collection.`), 60);
-}
-// One-time cleanup: release every owned Pokémon below Legendary rarity.
-if (!S.purgedUnderLegendaryV1){
-  S.purgedUnderLegendaryV1 = true;
-  let removed = 0;
-  Object.keys(S.owned).forEach(n=>{
-    if (rrank(BY_NAME[n].rarity) < rrank("legendary")){ delete S.owned[n]; removed++; }
-  });
-  S.team = S.team.filter(n=>S.owned[n]);     // drop released Pokémon from the team
-  save();
-  if (removed) setTimeout(()=>news(`🗑️ Released ${removed} Pokémon below Legendary — only Legendaries & Mythics remain.`), 60);
-}
-// One-time: bump an already-owned Mew to its new 1000-HP max.
-if (!S.legendaryBuffV1){
-  S.legendaryBuffV1 = true;
-  if (S.owned["Mew"]) S.owned["Mew"].hp = maxHpOf("Mew");
-  save();
-}
-// Grant every Pokémon (full HP), once — only to this existing save, not brand-new players.
-// Owner-tier (Arceus) is excluded here so it's never handed out by the catch-all grant.
-if (!S.grantedEverything && _loadedSave){
-  S.grantedEverything = true;
-  ROSTER.forEach(p=>{ if(p.rarity!=="owner" && !EVOLVE_ONLY.has(p.name) && !S.owned[p.name]) S.owned[p.name]={hp:p.hp}; });
-  save();
-}
-// Owner-exclusive: give Arceus to this save (the owner) and keep it on the team.
-// Impossible to obtain any other way — it never appears in the spinner or Pokédex.
-if (!S.isOwner && _loadedSave){
-  S.isOwner = true;
-  if (!S.owned["Arceus"]) S.owned["Arceus"] = {hp: maxHpOf("Arceus")};
-  if (!S.team.includes("Arceus")) S.team.unshift("Arceus");
-  S.team = S.team.slice(0,3);
-  save();
-}
-// Owner gift: hand the owner a Raichu directly (still evolve-only for everyone else).
-if (!S.gaveEvolvedPika){
-  S.gaveEvolvedPika = true;
-  if (!S.owned["Raichu"]) S.owned["Raichu"] = {hp: maxHpOf("Raichu")};
-  save();
-}
-// Owner gift: hand the owner a Lucario directly.
-if (!S.gaveLucario){
-  S.gaveLucario = true;
-  if (!S.owned["Lucario"]) S.owned["Lucario"] = {hp: maxHpOf("Lucario")};
-  save();
-}
-// Owner-exclusive: give the owner Ultra Necrozma and keep it on the team.
-if (!S.gaveUltraNecrozma){
-  S.gaveUltraNecrozma = true;
-  if (!S.owned["Ultra Necrozma"]) S.owned["Ultra Necrozma"] = {hp: maxHpOf("Ultra Necrozma")};
-  if (!S.team.includes("Ultra Necrozma")) S.team.unshift("Ultra Necrozma");
-  S.team = S.team.slice(0,3);
-  save();
-}
-} // end IS_OWNER_ACCOUNT legacy/owner block
 // Clamp stored HP to each Pokémon's current max (mythics included — they can faint now).
 Object.keys(S.owned).forEach(n=>{
   if (S.owned[n].hp > maxHpOf(n)) S.owned[n].hp = maxHpOf(n);   // clamp to current max HP
