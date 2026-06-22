@@ -181,7 +181,20 @@
 <body>
 
 <!-- ====== MAIN MAP ====== -->
-<div id="map-screen" class="screen active">
+<div id="login-screen" class="screen active">
+  <div style="max-width:420px; margin:8vh auto 0; text-align:center;">
+    <h1 style="font-size:1.8rem;">🎰 POKÉ-GACHA</h1>
+    <p class="muted" style="margin-top:6px;">Type a username to start. New username = new account.</p>
+    <input id="login-username" placeholder="Username" maxlength="20" autocomplete="off" spellcheck="false"
+      style="display:block; width:100%; margin-top:18px; padding:12px; border-radius:12px; border:1px solid var(--line); background:var(--panel2); color:var(--ink); font-size:1rem;">
+    <input id="login-password" type="password" placeholder="Password (only if your account has one)" autocomplete="off"
+      style="display:block; width:100%; margin-top:10px; padding:12px; border-radius:12px; border:1px solid var(--line); background:var(--panel2); color:var(--ink); font-size:1rem;">
+    <button id="btn-login" class="map-btn" style="width:100%; margin-top:14px; padding:13px; font-size:1.05rem;">▶ START</button>
+    <div id="login-msg" class="center" style="margin-top:12px; min-height:20px; font-weight:700; color:var(--red);"></div>
+  </div>
+</div>
+
+<div id="map-screen" class="screen">
   <div class="bar">
     <button id="btn-accounts" class="acct-btn" title="Accounts">👤 ACCOUNTS</button>
     <h1>🎰 POKÉ-GACHA</h1>
@@ -300,11 +313,27 @@
     <button id="btn-close-accounts">← Back</button>
     <h2>👤 ACCOUNTS</h2><span></span>
   </div>
-  <p class="muted center" style="margin-top:12px">Each account has its own coins, Pokémon, and progress. Switch any time — nothing is lost.</p>
-  <div id="accounts-list" style="display:flex; flex-direction:column; gap:10px; margin-top:14px;"></div>
-  <button id="btn-new-account" class="map-btn" style="margin-top:16px; width:100%;">➕ NEW ACCOUNT</button>
+  <p class="center" style="margin-top:12px">Logged in as <b id="acct-current">—</b></p>
+  <div style="display:flex; gap:10px; margin-top:12px;">
+    <button id="btn-set-password" class="map-btn" style="flex:1;">🔒 SET PASSWORD</button>
+    <button id="btn-logout" class="map-btn" style="flex:1;">🚪 LOG OUT</button>
+  </div>
+
+  <div id="give-box" style="display:none; margin-top:18px; background:var(--panel2); border:1px solid var(--line); border-radius:14px; padding:14px;">
+    <h3 style="margin:0 0 4px;">🎁 Give to a player (creator)</h3>
+    <p class="muted" style="font-size:.8rem; margin:0 0 10px;">Type a player's username and what to give. If they've played on this device it's added now; otherwise it waits for their next login here.</p>
+    <input id="give-username" placeholder="Player username" maxlength="20" autocomplete="off" spellcheck="false"
+      style="display:block; width:100%; padding:10px; border-radius:10px; border:1px solid var(--line); background:#0b0d1d; color:var(--ink);">
+    <select id="give-pokemon" style="display:block; width:100%; margin-top:8px; padding:10px; border-radius:10px; border:1px solid var(--line); background:#0b0d1d; color:var(--ink);"></select>
+    <div style="display:flex; gap:8px; margin-top:8px;">
+      <input id="give-coins" type="number" min="0" placeholder="Coins" style="flex:1; padding:10px; border-radius:10px; border:1px solid var(--line); background:#0b0d1d; color:var(--ink);">
+      <input id="give-spins" type="number" min="0" placeholder="Free spins" style="flex:1; padding:10px; border-radius:10px; border:1px solid var(--line); background:#0b0d1d; color:var(--ink);">
+    </div>
+    <button id="btn-give" class="map-btn" style="width:100%; margin-top:10px; background:var(--c-epic); color:#fff;">🎁 GIVE</button>
+  </div>
+
   <hr style="border:none; border-top:1px solid var(--line); margin:18px 0;">
-  <p class="muted center" style="font-size:.82rem;">💾 Save a backup file of your current account so you never lose it — even if browser data is cleared, or to move it to another device.</p>
+  <p class="muted center" style="font-size:.82rem;">💾 Save a backup file of your account so you never lose it — even if browser data is cleared, or to move it to another device.</p>
   <button id="btn-save-account" class="map-btn" style="margin-top:8px; width:100%; background:var(--green); color:#06210f;">💾 SAVE ACCOUNT TO FILE</button>
   <button id="btn-restore-account" class="map-btn" style="margin-top:10px; width:100%;">📂 RESTORE FROM BACKUP</button>
   <input type="file" id="restore-file" accept="application/json,.json" style="display:none;">
@@ -543,19 +572,31 @@ const FX_GLYPH = { Normal:"✦",Fire:"🔥",Water:"",Electric:"⚡",Grass:"🍃"
 // =====================================================================
 //  STATE
 // =====================================================================
-// ---- accounts: each account is its own save under a separate key ----
-const SAVE_PREFIX = "pokegacha_battle_v1";   // the original/default account keeps this exact key
-const ACCT_KEY = "pokegacha_accounts";
-function loadAccounts(){
-  try{ const a=JSON.parse(localStorage.getItem(ACCT_KEY)); if(a&&a.list&&a.list.length) return a; }catch(e){}
-  return { active:"default", list:[{id:"default", name:"Player 1"}] };   // adopt the legacy save as Player 1
-}
-let ACCOUNTS = loadAccounts();
-function saveAccounts(){ localStorage.setItem(ACCT_KEY, JSON.stringify(ACCOUNTS)); }
-const keyFor = id => id==="default" ? SAVE_PREFIX : SAVE_PREFIX+"::"+id;
-const activeAccount = () => ACCOUNTS.list.find(a=>a.id===ACCOUNTS.active) || ACCOUNTS.list[0];
-let SAVE_KEY = keyFor(ACCOUNTS.active);
-let S = null;
+// ---- accounts: username login; each user has its own save; one private "owner" ----
+const SAVE_PREFIX = "pokegacha_battle_v1";
+const USERS_KEY = "pokegacha_users_v1";
+const uslug = u => (u||"").trim().toLowerCase().replace(/\s+/g," ");
+let USERS = (()=>{ try{ const r=JSON.parse(localStorage.getItem(USERS_KEY)); if(r&&r.users) return r; }catch(e){} return null; })();
+function saveUsers(){ localStorage.setItem(USERS_KEY, JSON.stringify(USERS)); }
+(function migrateUsers(){          // one-time: fold the old account system / legacy save into usernames
+  if (USERS) return;
+  USERS = { owner:null, users:{}, gifts:{} };
+  let old=null; try{ old=JSON.parse(localStorage.getItem("pokegacha_accounts")); }catch(e){}
+  if (old && old.list && old.list.length){
+    old.list.forEach(a=>{
+      const u = uslug(a.name) || ("player"+a.id);
+      USERS.users[u] = { display:a.name, key:(a.id==="default"?SAVE_PREFIX:SAVE_PREFIX+"::"+a.id), pass:null, isOwner:a.id==="default" };
+      if (a.id==="default") USERS.owner = u;
+    });
+  } else if (localStorage.getItem(SAVE_PREFIX)){   // legacy single save → owner "Player 1"
+    USERS.users["player 1"] = { display:"Player 1", key:SAVE_PREFIX, pass:null, isOwner:true };
+    USERS.owner = "player 1";
+  }
+  saveUsers();
+})();
+let CURRENT_USER=null, SAVE_KEY=null, S=null;
+const curUser = () => USERS.users[CURRENT_USER] || {display:"—"};
+const isOwnerUser = () => !!(USERS.users[CURRENT_USER] && USERS.users[CURRENT_USER].isOwner);
 function freshState(){
   return { coins:500, owned:{}, team:[], wins:0, losses:0, spins:0, bestPull:null,
            pity:0, freeSpins:0, redeemed:[] };
@@ -574,51 +615,69 @@ const livingNames = () => ownedNames().filter(n=>S.owned[n].hp>0);
 // =====================================================================
 function showScreen(id){ $$(".screen").forEach(s=>s.classList.remove("active")); $("#"+id).classList.add("active"); window.scrollTo(0,0); }
 
-// ---- accounts UI ----
+// ---- login screen ----
+function loginMsg(t,c){ const e=$("#login-msg"); if(e){ e.textContent=t; e.style.color=c||"var(--red)"; } }
+function attemptLogin(){
+  const raw = $("#login-username").value;
+  const u = uslug(raw);
+  if(!u){ loginMsg("Type a username to start."); return; }
+  const rec = USERS.users[u];
+  const pw = $("#login-password").value;
+  if (rec && rec.pass){
+    if (pw !== rec.pass){ loginMsg("🔒 Wrong password for that account."); return; }
+  }
+  startSession(u, raw, pw);
+}
+// ---- accounts UI (logged in) ----
 function renderAccounts(){
-  const box=$("#accounts-list"); box.innerHTML="";
-  ACCOUNTS.list.forEach(a=>{
-    const active = a.id===ACCOUNTS.active;
-    const row=document.createElement("div");
-    row.style.cssText="display:flex; gap:8px; align-items:center; background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:10px 12px;";
-    row.innerHTML=`<b style="flex:1">${active?"▶ ":""}${a.name}</b>`;
-    if (!active){
-      const sw=document.createElement("button"); sw.className="map-btn"; sw.textContent="Switch";
-      sw.onclick=()=>switchAccount(a.id); row.appendChild(sw);
-    } else {
-      const tag=document.createElement("span"); tag.className="muted"; tag.textContent="current"; row.appendChild(tag);
-    }
-    if (ACCOUNTS.list.length>1){
-      const del=document.createElement("button"); del.className="map-btn"; del.textContent="🗑";
-      del.title="Delete this account"; del.onclick=()=>deleteAccount(a.id); row.appendChild(del);
-    }
-    box.appendChild(row);
-  });
+  $("#acct-current").textContent = curUser().display + (isOwnerUser()? " 👑 (creator)" : "");
+  const gv=$("#give-box"); if(gv) gv.style.display = isOwnerUser() ? "block" : "none";
+  const sel=$("#give-pokemon");
+  if (isOwnerUser() && sel && !sel.dataset.filled){
+    sel.innerHTML = `<option value="">— no Pokémon —</option>` +
+      ROSTER.filter(p=>p.rarity!=="owner").map(p=>`<option value="${p.name}">${p.name} (${p.rarity})</option>`).join("");
+    sel.dataset.filled="1";
+  }
 }
-function newAccount(){
-  const name=(prompt("Name your new account:","Player "+(ACCOUNTS.list.length+1))||"").trim();
-  if(!name) return;
-  const id="acct_"+Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36);
-  ACCOUNTS.list.push({id,name}); ACCOUNTS.active=id; saveAccounts();
-  location.reload();   // reboot fresh into the brand-new (empty) account
+function logout(){ location.reload(); }   // boot always returns to the login screen
+function setPassword(){
+  const rec=USERS.users[CURRENT_USER];
+  if (rec.pass){ const old=prompt("Enter your CURRENT password:"); if(old!==rec.pass){ acctMsg("Wrong password.","var(--red)"); return; } }
+  const np=prompt("Set a new password (leave blank to remove it):");
+  if(np===null) return;
+  rec.pass = np.trim() || null; saveUsers();
+  acctMsg(rec.pass ? "🔒 Password set — you'll need it to log in." : "Password removed.");
 }
-function switchAccount(id){ ACCOUNTS.active=id; saveAccounts(); location.reload(); }
-function deleteAccount(id){
-  const a=ACCOUNTS.list.find(x=>x.id===id); if(!a) return;
-  if(!confirm(`Delete account "${a.name}"? This erases its progress and cannot be undone.`)) return;
-  localStorage.removeItem(keyFor(id));
-  ACCOUNTS.list=ACCOUNTS.list.filter(x=>x.id!==id);
-  if(ACCOUNTS.active===id) ACCOUNTS.active=ACCOUNTS.list[0].id;
-  saveAccounts(); location.reload();
+function givePrize(){
+  if(!isOwnerUser()) return;
+  const tu=uslug($("#give-username").value);
+  if(!tu){ acctMsg("Type the player's username.","var(--red)"); return; }
+  const item={}; const poke=$("#give-pokemon").value;
+  const coins=parseInt($("#give-coins").value)||0, spins=parseInt($("#give-spins").value)||0;
+  if(poke) item.pokemon=poke; if(coins>0) item.coins=coins; if(spins>0) item.spins=spins;
+  if(!item.pokemon && !item.coins && !item.spins){ acctMsg("Choose something to give.","var(--red)"); return; }
+  const rec=USERS.users[tu]; let delivered=false;
+  if (rec){ let st=null; try{ st=JSON.parse(localStorage.getItem(rec.key)); }catch(e){}
+    if (st && st.owned){
+      if(item.coins) st.coins=(st.coins||0)+item.coins;
+      if(item.spins) st.freeSpins=(st.freeSpins||0)+item.spins;
+      if(item.pokemon && BY_NAME[item.pokemon] && !st.owned[item.pokemon]) st.owned[item.pokemon]={hp:maxHpOf(item.pokemon)};
+      localStorage.setItem(rec.key, JSON.stringify(st)); delivered=true;
+      acctMsg(`✅ Sent to ${rec.display}!`);
+    }
+  }
+  if(!delivered){ (USERS.gifts[tu]=USERS.gifts[tu]||[]).push(item); saveUsers();
+    acctMsg(`✅ Queued for "${tu}" — they'll get it next time they log in on this device.`); }
+  $("#give-username").value=""; $("#give-coins").value=""; $("#give-spins").value=""; if($("#give-pokemon"))$("#give-pokemon").value="";
 }
 function acctMsg(t,c){ const e=$("#accounts-msg"); if(e){ e.textContent=t; e.style.color=c||"var(--green)"; } }
 function saveAccountToFile(){
   save();   // flush latest progress first
-  const data={ app:"pokegacha", account:activeAccount().name, savedAt:new Date().toISOString(), state:S };
+  const data={ app:"pokegacha", account:curUser().display, savedAt:new Date().toISOString(), state:S };
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");
-  a.href=url; a.download=`pokegacha-${activeAccount().name.replace(/[^\w-]+/g,"_")}.json`;
+  a.href=url; a.download=`pokegacha-${curUser().display.replace(/[^\w-]+/g,"_")}.json`;
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
   acctMsg("✅ Saved! Keep the downloaded file safe.");
 }
@@ -642,7 +701,7 @@ function renderMap(){
     ownedNames().forEach(n=>S.owned[n].hp=maxHpOf(n)); news("💖 Nurse Joy healed your fainted team for free!"); save();
   }
   $("#map-coins").textContent = S.coins;
-  $("#map-account").textContent = activeAccount().name;
+  $("#map-account").textContent = curUser().display;
   $("#map-collection").textContent = dexOwnedCount();
   $("#map-dex-total").textContent = DEX_TOTAL;
   $("#map-wins").textContent = S.wins;
@@ -1269,7 +1328,9 @@ $("#btn-codes").onclick = ()=>{ showScreen("codes-screen"); $("#code-input").val
 $("#btn-close-codes").onclick = ()=>{ showScreen("map-screen"); renderMap(); };
 $("#btn-accounts").onclick = ()=>{ acctMsg(""); renderAccounts(); showScreen("accounts-screen"); };
 $("#btn-close-accounts").onclick = ()=>{ showScreen("map-screen"); renderMap(); };
-$("#btn-new-account").onclick = ()=>newAccount();
+$("#btn-logout").onclick = ()=>logout();
+$("#btn-set-password").onclick = ()=>setPassword();
+$("#btn-give").onclick = ()=>givePrize();
 $("#btn-save-account").onclick = ()=>saveAccountToFile();
 $("#btn-restore-account").onclick = ()=>$("#restore-file").click();
 $("#restore-file").onchange = (e)=>{ const f=e.target.files[0]; if(f) restoreFromFile(f); };
@@ -1285,10 +1346,14 @@ $("#btn-back-map").onclick = ()=>{ if(B && !B.over && !confirm("Leave the battle
 $("#btn-return-map").onclick = ()=>{ B=null; showScreen("map-screen"); renderMap(); };
 $("#btn-open-switch").onclick = ()=>{ if(!B.busy && !B.over) showSwitch(false); };
 
-// ---- boot ----
-const _loadedSave = load();          // existing save? (brand-new players start empty)
-const IS_OWNER_ACCOUNT = ACCOUNTS.active==="default";   // only the original account is the owner
-S = _loadedSave || freshState();
+// ---- session start (runs after the player logs in) ----
+function startSession(u, displayRaw, pw){
+  let rec = USERS.users[u];
+  if(!rec){ rec = { display:(displayRaw||u).trim(), key:SAVE_PREFIX+"::"+u, pass:(pw||null), isOwner:false }; USERS.users[u]=rec; }
+  CURRENT_USER=u; SAVE_KEY=rec.key; saveUsers();
+  const _loadedSave = load();             // existing save for this user?
+  const IS_OWNER_ACCOUNT = rec.isOwner;   // owner-only gifts apply only to the owner account
+  S = _loadedSave || freshState();
 // Migrate legacy saves from the old made-up roster names onto the real Pokémon names.
 if (!S.realNamesV1){
   const nameMap = {}; OLD_NAMES.forEach((o,i)=>{ if(ROSTER[i]) nameMap[o]=ROSTER[i].name; });
@@ -1385,9 +1450,27 @@ if (!S.gaveUltraNecrozma){
 Object.keys(S.owned).forEach(n=>{
   if (S.owned[n].hp > maxHpOf(n)) S.owned[n].hp = maxHpOf(n);   // clamp to current max HP
 });
+applyGifts(u);                          // deliver anything the creator queued for this player
 save();
 if (!HAS_GSAP) console.warn("GSAP not loaded — animations degrade to instant.");
-renderMap();
+showScreen("map-screen"); renderMap();
+}  // end startSession
+function applyGifts(u){
+  const g = USERS.gifts[u]; if(!g || !g.length) return;
+  let any=false;
+  g.forEach(it=>{
+    if(it.coins){ S.coins=(S.coins||0)+it.coins; any=true; }
+    if(it.spins){ S.freeSpins=(S.freeSpins||0)+it.spins; any=true; }
+    if(it.pokemon && BY_NAME[it.pokemon] && !S.owned[it.pokemon]){ S.owned[it.pokemon]={hp:maxHpOf(it.pokemon)}; any=true; }
+  });
+  USERS.gifts[u]=[]; saveUsers();
+  if(any) setTimeout(()=>news("🎁 You received a gift from the creator!"), 120);
+}
+// ---- login wiring + page start (the game always starts at the login screen) ----
+$("#btn-login").onclick = ()=>attemptLogin();
+$("#login-username").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptLogin(); });
+$("#login-password").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptLogin(); });
+$("#login-username").focus();
 </script>
 </body>
 </html>
